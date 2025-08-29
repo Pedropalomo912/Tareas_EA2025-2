@@ -1,0 +1,1410 @@
+---
+title: "Mapas Estadísticos del Estado de Zacatecas"
+author: "Pedro Gutiérrez"
+format: html
+editor: visual
+---
+
+## Configuración del entorno {.tabset}
+
+Primero, carguemos las librerías necesarias:
+
+```{r setup}
+#| warning: false
+#| message: false
+
+# Cargar librerías
+library(tidyverse)    # Para manipulación de datos
+library(sf)          # Para datos espaciales
+library(viridis)     # Para paletas de colores
+library(tmap) #Dibujar el mapa
+library(sf) #Para leer el shapefile y reducir el tama?o del archivo
+library(pryr) #Calcular el tama?o del archivo
+library("readr") #para cargar csv
+library(base) # para merge
+library(reshape2) # para hacer dcast
+library(plyr) # para mineria en csv
+library(janitor)    # Para limpiar nombres de columnas
+library(scales)     # Para mejorar ejes en gráficos
+library(dplyr) # para inner join
+
+```
+
+```{r}
+# Configurar tema para los mapas
+theme_set(theme_minimal())
+```
+
+## Descripciones graficas del estado de Zacatecas {.tabset}
+
+### Datos espaciales de zacatecas
+
+```{r datos_municipios}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+
+municipios_zacatecas <- st_read("data/32mun.shp", options = "ENCODING=LATIN1", quiet = TRUE)
+
+# Crear mapa de municipios de zacatecas
+mapa_municipios <- ggplot(municipios_zacatecas) +
+  geom_sf(fill = "lightgreen", color = "white", size = 0.3) +
+  labs(
+    title = "Municipios de zacatecas",
+    subtitle = paste("Total de municipios:", nrow(municipios_zacatecas)),
+    caption = "Fuente: INEGI - Marco Geoestadístico"
+  ) +
+  theme_void() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    plot.caption = element_text(size = 10)
+  )
+
+print(mapa_municipios)
+```
+
+## Lectura de datos{.tabset}
+
+Carguemos los datos de población y vivienda para el año 2020, filtrando por algunos indicadores relevantes:
+
+-   Índice de envejecimiento
+-   Viviendas particulares habitadas que disponen de energía eléctrica
+-   Porcentaje de la población derechohabiente en el ISSSTE
+-   Relación de dependencia
+-   Hogares con jefatura femenina
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| message: false
+
+
+
+datos_total <- read_csv("data/cpv_valor_32.csv", na = c("ND"))
+
+datos_total <- datos_total |> filter(año == 2020)
+#unique(datos_total$indicador)
+datos_seleccion <- datos_total |> 
+  filter(indicador %in% c("Porcentaje de la población derechohabiente en el ISSSTE", "Índice de envejecimiento", "Viviendas particulares habitadas que disponen de energía eléctrica","Relación de dependencia", "Hogares con jefatura femenina" ), desc_municipio != "Estatal") |> 
+  select(desc_municipio, indicador, valor)
+```
+
+Cambiamos el formato de los datos para que cada indicador sea una columna separada, facilitando el análisis posterior. Además, limpiamos los nombres de las columnas para que sean más manejables y creamos una columna `NOMGEO` para poder unir los datos espaciales con los datos de población y vivienda.
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| message: false
+
+datos <- datos_seleccion |>
+    pivot_wider(names_from = indicador, values_from = valor) 
+
+datos <- datos |> 
+  clean_names() 
+
+# Corrección de nombres de municipios
+
+datos <- datos |> 
+  mutate(desc_municipio = if_else(desc_municipio == "EL Arenal", "El Arenal", desc_municipio))
+
+datos <- datos |> 
+  mutate(NOMGEO = desc_municipio)
+```
+
+### Estadísticas descriptivas
+
+Ahora que tenemos nuestros datos preparados, podemos realizar un resumen numérico de las variables cuantitativas. Para ello, utilizaremos la función `summary()` de R, que nos proporcionará un resumen estadístico de cada variable, incluyendo la media, mediana, mínimo, máximo y cuartiles. Hay que agregar las demás medidas de dispersión analizadas en clase (desviación media, varianza, rango, etc.) para cada variable cuantitativa.
+
+```{r}
+#| code-fold: true
+
+summary(datos)
+```
+
+Se unen los datos geograficos de los municipios de zacatecas con los datos de población y vivienda. Esto nos permitirá crear mapas y realizar análisis espaciales. Para preservar la integridad de los datos, utilizamos `left_join()` de `dplyr`, el primer conjunto de datos debe ser el que contenga la columna `geometry`.
+
+```{r}
+#| code-fold: true
+
+datos <- left_join(municipios_zacatecas, datos)
+```
+
+## Porcentaje de la población derechohabiente en el ISSSTE {.tabset}
+
+Un derechohabiente al ISSSTE es una persona que tiene derecho a las prestaciones de salud, seguridad social y servicios que ofrece el Instituto de Seguridad y Servicios Sociales de los Trabajadores del Estado (ISSSTE)
+
+### Mapa temático
+
+```{r}
+#| code-fold: true
+#| fig-width: 8
+#| fig-align: center
+
+
+ggplot(datos) +
+  geom_sf(aes(fill = porcentaje_de_la_poblacion_derechohabiente_en_el_issste), color = "white", size = 0.1) +
+  scale_fill_viridis_c(
+    name = "Porcentaje de la población derechohabiente en el ISSSTE",
+  ) +
+  labs(
+    title = "Procentaje de la población derechohabiente (ISSTE) de los Municipios de zacatecas",
+    caption = "Fuente: INEGI - Marco Geoestadístico"
+  ) +
+  theme_void() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    plot.caption = element_text(size = 10),
+    legend.position = "right"
+  )
+
+```
+
+### Histograma
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+ggplot(datos) +
+  geom_histogram(aes(porcentaje_de_la_poblacion_derechohabiente_en_el_issste), color="black", fill = "olivedrab", boundary=min(datos$porcentaje_de_la_poblacion_derechohabiente_en_el_issste), binwidth = 1) +
+  labs(
+    title = "Porcentaje de derechohabiencia ISSSTE",
+    x = "Porcentaje Derechohabiente", y = "Frecuencia"
+  ) +
+  theme_bw()+
+  theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13)
+  )
+
+```
+
+### Gráfica de densidad
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+ggplot(datos) +
+  geom_density(aes(porcentaje_de_la_poblacion_derechohabiente_en_el_issste), color="black", fill = "firebrick", alpha=0.6) +
+  labs(
+    title = "Distribución dl Porcentaje asegurada ante el ISSSTE",
+    x = "Asegurados ISSSTE(Porcentaje)", y = "Densidad"
+  ) +
+  theme_bw()+
+  theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13)
+  )
+
+
+```
+
+### Boxplot
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+ggplot(data = datos, aes(x = "", y = porcentaje_de_la_poblacion_derechohabiente_en_el_issste)) +
+    geom_boxplot(
+    fill = "#4A90E2",           # Color de relleno
+    color = "#2C5F7A",          # Color del borde más oscuro
+    alpha = 0.8,                # Transparencia
+    outlier.color = "#E74C3C",  # Color rojo para outliers
+    outlier.size = 2.5,         # Tamaño de outliers
+    outlier.alpha = 0.7,        # Transparencia de outliers
+    width = 0.5,                # Ancho del boxplot
+    notch = TRUE,               # Muescas para intervalo de confianza
+    notchwidth = 0.7            # Ancho de las muescas
+  ) +
+  geom_jitter(alpha = 0.3, color = "#34495E", size = 1.5, width = 0.1) +
+  scale_y_continuous(breaks = pretty_breaks(n = 8), labels = function(x) paste(x, "%")) +
+  labs(title = "Distribución de la Población asegurada ante el ISSSTE (Porcentaje)", 
+  subtitle = "Población de elEstado de zacatecas",
+  y = "Población Asegurada (Porcentaje)",
+  x = "")+
+  theme_bw()+
+  theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13),
+    panel.grid.major.y = element_line(color = "#ECF0F1", linewidth = 0.5,
+      linetype = "dashed"),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.background = element_rect(fill = "#FAFAFA", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+```
+
+### Gráfico de violín
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+ggplot(data = datos, aes(x = "", y = porcentaje_de_la_poblacion_derechohabiente_en_el_issste)) +
+    geom_violin(fill = "#4A90E2", color = "#2C5F7A", alpha = 0.8,
+    trim = FALSE,               # No recortar las colas
+    scale = "width", width = 0.8, linewidth = 0.8) +
+    geom_boxplot( width = 0.15, fill = "white", color = "#2C5F7A", alpha = 0.9,
+    outlier.color = "#E74C3C", outlier.size = 1.5, outlier.alpha = 0.8, notch = FALSE) +
+  stat_summary(fun = median, geom = "point", shape = 21, size = 3, fill = "white",
+  color = "#2C5F7A", stroke = 1.5) +
+  geom_jitter(alpha = 0.2, color = "#34495E", size = 0.8, width = 0.05) +
+  scale_y_continuous(breaks = pretty_breaks(n = 8), labels = function(x) paste(x, "%")) +
+  labs(title = "Distribución de la Población ante el ISSSTE (porcentaje)", 
+  subtitle = "Población del Estado de zacatecas",
+  y = "Población del ISSSTE (Porcentaje)",
+  x = "")+
+  theme_bw()+
+  theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13),
+    panel.grid.major.y = element_line(color = "#ECF0F1", linewidth = 0.5,
+      linetype = "dashed"),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.background = element_rect(fill = "#FAFAFA", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+  
+```
+
+### Q-Q Plot (comparación de cuantiles)
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+
+# Q-Q Plot básico para normalidad
+ggplot(data = datos, aes(sample = porcentaje_de_la_poblacion_derechohabiente_en_el_issste)) +
+    stat_qq(color = "#4A90E2", size = 2, alpha = 0.7) +
+    stat_qq_line(color = "#E74C3C", linewidth = 1, linetype = "dashed") +
+    scale_x_continuous(name = "Cuantiles Teóricos (Distribución Normal)",
+    breaks = pretty_breaks(n = 6)) +
+    scale_y_continuous(name = "Cuantiles Muestrales (Relacion de dependencia)",
+    breaks = pretty_breaks(n = 6),
+    labels = function(x) paste(x, "%")) +
+    labs(title = "Gráfico Q-Q para Normalidad",
+    subtitle = "Porcentaje ISSSTE - Población zacatecas") +
+    theme_bw()+
+    theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13),
+    panel.grid.major.y = element_line(color = "#ECF0F1", linewidth = 0.5,
+      linetype = "dashed"),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.background = element_rect(fill = "#FAFAFA", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+  
+
+
+```
+
+### Dot Plot (Gráfico de puntos)
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-height: 16
+#| fig-align: center
+
+ggplot(data = datos, aes(x = porcentaje_de_la_poblacion_derechohabiente_en_el_issste, y = reorder(NOMGEO, porcentaje_de_la_poblacion_derechohabiente_en_el_issste))) +
+  geom_point(color = "#4A90E2", size = 3, alpha = 0.8) +
+  geom_segment(aes(x = 0, xend = porcentaje_de_la_poblacion_derechohabiente_en_el_issste, y = NOMGEO, yend = NOMGEO),
+    color = "#BDC3C7", size = 0.5, alpha = 0.7) +
+  scale_x_continuous(
+    name = "Porcentaje ISSSTE",
+    breaks = pretty_breaks(n = 6),
+    expand = expansion(mult = c(0, 0.1))) +
+  scale_y_discrete(
+    name = "Municipios",
+    expand = expansion(mult = c(0.01, 0.01))
+  ) +
+  labs(
+    title = "Dot Plot - ISSSTE (porcentaje) por Municipio",
+    subtitle = "Estado de zacatecas") +
+  theme_bw()+
+    theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=9),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13),
+    panel.grid.major.y = element_line(color = "#ECF0F1", linewidth = 0.5,
+      linetype = "dashed"),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.background = element_rect(fill = "#FAFAFA", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+
+```
+
+## Índice de envejecimiento {.tabset}
+
+El índice de envejecimiento es un indicador demográfico que mide la relación entre la población de adultos mayores y la población joven, expresada como el número de personas de 65 años o más por cada 100 personas de 0 a 14 años de edad. Un índice alto indica una población envejecida, con muchos adultos mayores en proporción a los jóvenes, mientras que un índice bajo sugiere una proporción mayor de jóvenes.
+
+### Mapa temático
+
+```{r}
+#| code-fold: true
+#| fig-width: 8
+#| fig-align: center
+
+
+ggplot(datos) +
+  geom_sf(aes(fill = indice_de_envejecimiento), color = "white", size = 0.1) +
+  scale_fill_viridis_c(
+    name = "Índice de envejecimiento"
+  ) +
+  labs(
+    title = "Índice de envejecimiento de los Municipios de zacatecas",
+    caption = "Fuente: INEGI - Marco Geoestadístico"
+  ) +
+  theme_void() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    plot.caption = element_text(size = 10),
+    legend.position = "right"
+  )
+
+```
+
+### Histograma
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+ggplot(datos) +
+  geom_histogram(aes(indice_de_envejecimiento), color="black", fill = "olivedrab", boundary=min(datos$indice_de_envejecimiento), binwidth = 2) +
+  labs(
+    title = "Distribución de la Edad",
+    x = "Índice (Porcentaje)", y = "Frecuencia"
+  ) +
+  theme_bw()+
+  theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13)
+  )
+
+```
+
+### Gráfica de densidad
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+ggplot(datos) +
+  geom_density(aes(indice_de_envejecimiento), color="black", fill = "firebrick", alpha=0.6) +
+  labs(
+    title = "Distribución del Índice de envejecimiento",  
+    x = "Porcentaje", y = "Densidad"
+  ) +
+  theme_bw()+
+  theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13)
+  )
+
+
+```
+
+### Boxplot
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+ggplot(data = datos, aes(x = "", y = indice_de_envejecimiento)) +
+    geom_boxplot(
+    fill = "#4A90E2",           # Color de relleno
+    color = "#2C5F7A",          # Color del borde más oscuro
+    alpha = 0.8,                # Transparencia
+    outlier.color = "#E74C3C",  # Color rojo para outliers
+    outlier.size = 2.5,         # Tamaño de outliers
+    outlier.alpha = 0.7,        # Transparencia de outliers
+    width = 0.5,                # Ancho del boxplot
+    notch = TRUE,               # Muescas para intervalo de confianza
+    notchwidth = 0.7            # Ancho de las muescas
+  ) +
+  geom_jitter(alpha = 0.3, color = "#34495E", size = 1.5, width = 0.1) +
+  scale_y_continuous(breaks = pretty_breaks(n = 8), labels = function(x) paste(x, "%")) +
+  labs(title = "Distribución de la Índice de envejecimiento", 
+  subtitle = "Población del Estado de zacatecas",
+  y = "Índice de envejecimiento",
+  x = "")+
+  theme_bw()+
+  theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13),
+    panel.grid.major.y = element_line(color = "#ECF0F1", linewidth = 0.5,
+      linetype = "dashed"),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.background = element_rect(fill = "#FAFAFA", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+```
+
+### Gráfico de violín
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+ggplot(data = datos, aes(x = "", y = indice_de_envejecimiento)) +
+    geom_violin(fill = "#4A90E2", color = "#2C5F7A", alpha = 0.8,
+    trim = FALSE,               # No recortar las colas
+    scale = "width", width = 0.8, linewidth = 0.8) +
+    geom_boxplot( width = 0.15, fill = "white", color = "#2C5F7A", alpha = 0.9,
+    outlier.color = "#E74C3C", outlier.size = 1.5, outlier.alpha = 0.8, notch = FALSE) +
+  stat_summary(fun = median, geom = "point", shape = 21, size = 3, fill = "white",
+  color = "#2C5F7A", stroke = 1.5) +
+  geom_jitter(alpha = 0.2, color = "#34495E", size = 0.8, width = 0.05) +
+  scale_y_continuous(breaks = pretty_breaks(n = 8), labels = function(x) paste(x, "%")) +
+  labs(title = "Distribución de la Índice de envejecimiento", 
+  subtitle = "Población del Estado de zacatecas",
+  y = "Índice",
+  x = "")+
+  theme_bw()+
+  theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13),
+    panel.grid.major.y = element_line(color = "#ECF0F1", linewidth = 0.5,
+      linetype = "dashed"),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.background = element_rect(fill = "#FAFAFA", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+  
+```
+
+### Q-Q Plot (comparación de cuantiles)
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+
+# Q-Q Plot básico para normalidad
+ggplot(data = datos, aes(sample = indice_de_envejecimiento)) +
+    stat_qq(color = "#4A90E2", size = 2, alpha = 0.7) +
+    stat_qq_line(color = "#E74C3C", linewidth = 1, linetype = "dashed") +
+    scale_x_continuous(name = "Cuantiles Teóricos (Distribución Normal)",
+    breaks = pretty_breaks(n = 6)) +
+    scale_y_continuous(name = "Cuantiles Muestrales (Relacion de dependencia)",
+    breaks = pretty_breaks(n = 6),
+    labels = function(x) paste(x, "%")) +
+    labs(title = "Gráfico Q-Q para Normalidad",
+    subtitle = "Índice de envejecimiento - Población zacatecas") +
+    theme_bw()+
+    theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13),
+    panel.grid.major.y = element_line(color = "#ECF0F1", linewidth = 0.5,
+      linetype = "dashed"),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.background = element_rect(fill = "#FAFAFA", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+  
+
+
+```
+
+### Dot Plot (Gráfico de puntos)
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-height: 16
+#| fig-align: center
+
+ggplot(data = datos, aes(x = indice_de_envejecimiento, y = reorder(NOMGEO, indice_de_envejecimiento))) +
+  geom_point(color = "#4A90E2", size = 3, alpha = 0.8) +
+  geom_segment(aes(x = 0, xend = indice_de_envejecimiento, y = NOMGEO, yend = NOMGEO),
+    color = "#BDC3C7", size = 0.5, alpha = 0.7) +
+  scale_x_continuous(
+    name = "Índice de envejecimiento",
+    breaks = pretty_breaks(n = 6),
+    expand = expansion(mult = c(0, 0.1))) +
+  scale_y_discrete(
+    name = "Municipios",
+    expand = expansion(mult = c(0.01, 0.01))
+  ) +
+  labs(
+    title = "Dot Plot - Índice de envejecimiento por Municipio",
+    subtitle = "Estado de zacatecas") +
+  theme_bw()+
+    theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=9),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13),
+    panel.grid.major.y = element_line(color = "#ECF0F1", linewidth = 0.5,
+      linetype = "dashed"),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.background = element_rect(fill = "#FAFAFA", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+
+```
+
+## Hogares con Jefatura Femenina {.tabset}
+
+La jefatura femenina corresponde a las mujeres sin compañero permanente encargadas de las funciones instrumentales, psicoafectivas y económicas de su grupo familiar. En este sentido, las familias con jefatura femenina son sinónimo de las familias mono o uni parentales
+
+### Mapa temático
+
+```{r}
+#| code-fold: true
+#| fig-width: 8
+#| fig-align: center
+
+
+ggplot(datos) +
+  geom_sf(aes(fill = hogares_con_jefatura_femenina), color = "white", size = 0.9) +
+  scale_fill_viridis_c(
+    name = "Hogares con Jefatura Femenina",
+    trans = "log10",
+    labels = scales::comma_format()
+  ) +
+  labs(
+    title = "Hogares con Jefatura Femenina de los Municipios de Zacatecas",
+    caption = "Fuente: INEGI - Marco Geoestadístico"
+  ) +
+  theme_void() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    plot.caption = element_text(size = 10),
+    legend.position = "right"
+  )
+
+```
+
+### Histograma
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+ggplot(datos) +
+  geom_histogram(aes(hogares_con_jefatura_femenina), color="black", fill = "olivedrab", boundary=min(datos$hogares_con_jefatura_femenina), binwidth = 1000) +
+  labs(
+    title = "Distribución de las casas con Jefatura Femenina",
+    x = "No. de Hogares", y = "Frecuencia"
+  ) +
+  theme_bw()+
+  theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13)
+  )
+
+```
+
+### Gráfica de densidad
+
+```{r}
+#| code-fold: true
+#| fig-width: 10
+#| fig-align: center
+
+ggplot(datos) +
+  geom_density(aes(hogares_con_jefatura_femenina), color="black", fill = "firebrick", alpha=0.6) +
+  labs(
+    title = "Distribución de los Hogares con Jefatura Femenina",
+    x = "No de Hogares", 
+    y = "Densidad"
+  ) +
+  theme_bw()+
+  theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13)
+  )
+
+
+```
+
+### Boxplot
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+ggplot(data = datos, aes(x = "", y = hogares_con_jefatura_femenina)) +
+    geom_boxplot(
+    fill = "#4A90E2",           # Color de relleno
+    color = "#2C5F7A",          # Color del borde más oscuro
+    alpha = 0.8,                # Transparencia
+    outlier.color = "#E74C3C",  # Color rojo para outliers
+    outlier.size = 2.5,         # Tamaño de outliers
+    outlier.alpha = 0.7,        # Transparencia de outliers
+    width = 0.5,                # Ancho del boxplot
+    notch = TRUE,               # Muescas para intervalo de confianza
+    notchwidth = 0.7            # Ancho de las muescas
+  ) +
+  geom_jitter(alpha = 0.3, color = "#34495E", size = 1.5, width = 0.1) +
+  scale_y_continuous(breaks = pretty_breaks(n = 8), labels = function(x) paste(x, "")) +
+  labs(title = "Distribución de la Hogares con Jefatura Femenina", 
+  subtitle = "Población del Estado de zacatecas",
+  y = "No. de Hogares",
+  x = "")+
+  theme_bw()+
+  theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13),
+    panel.grid.major.y = element_line(color = "#ECF0F1", linewidth = 0.5,
+      linetype = "dashed"),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.background = element_rect(fill = "#FAFAFA", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+```
+
+### Gráfico de violín
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+ggplot(data = datos, aes(x = "", y = hogares_con_jefatura_femenina)) +
+    geom_violin(fill = "#4A90E2", color = "#2C5F7A", alpha = 0.8,
+    trim = FALSE,               # No recortar las colas
+    scale = "width", width = 0.8, linewidth = 0.8) +
+    geom_boxplot( width = 0.15, fill = "white", color = "#2C5F7A", alpha = 0.9,
+    outlier.color = "#E74C3C", outlier.size = 1.5, outlier.alpha = 0.8, notch = FALSE) +
+  stat_summary(fun = median, geom = "point", shape = 21, size = 3, fill = "white",
+  color = "#2C5F7A", stroke = 1.5) +
+  geom_jitter(alpha = 0.2, color = "#34495E", size = 0.8, width = 0.05) +
+  scale_y_continuous(breaks = pretty_breaks(n = 8), labels = function(x) paste(x, "")) +
+  labs(title = "Distribución de la Hogares con Jefatura Femenina", 
+  subtitle = "Población del Estado de zacatecas",
+  y = "No. de Hogares",
+  x = "")+
+  theme_bw()+
+  theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13),
+    panel.grid.major.y = element_line(color = "#ECF0F1", linewidth = 0.5,
+      linetype = "dashed"),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.background = element_rect(fill = "#FAFAFA", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+  
+```
+
+### Q-Q Plot (comparación de cuantiles)
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+
+# Q-Q Plot básico para normalidad
+ggplot(data = datos, aes(sample = hogares_con_jefatura_femenina)) +
+    stat_qq(color = "#4A90E2", size = 2, alpha = 0.7) +
+    stat_qq_line(color = "#E74C3C", linewidth = 1, linetype = "dashed") +
+    scale_x_continuous(name = "Cuantiles Teóricos (Distribución Normal)",
+    breaks = pretty_breaks(n = 6)) +
+    scale_y_continuous(name = "Cuantiles Muestrales (Hogares con Jefatura Femenina)",
+    breaks = pretty_breaks(n = 6),
+    labels = function(x) paste(x, "")) +
+    labs(title = "Gráfico Q-Q para Normalidad",
+    subtitle = "Hogares con Jefatura Femenina - Población zacatecas") +
+    theme_bw()+
+    theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13),
+    panel.grid.major.y = element_line(color = "#ECF0F1", linewidth = 0.5,
+      linetype = "dashed"),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.background = element_rect(fill = "#FAFAFA", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+  
+
+
+```
+
+### Dot Plot (Gráfico de puntos)
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-height: 16
+#| fig-align: center
+
+ggplot(data = datos, aes(x = hogares_con_jefatura_femenina, y = reorder(NOMGEO, hogares_con_jefatura_femenina))) +
+  geom_point(color = "#4A90E2", size = 3, alpha = 0.8) +
+  geom_segment(aes(x = 0, xend = hogares_con_jefatura_femenina, y = NOMGEO, yend = NOMGEO),
+    color = "#BDC3C7", size = 0.5, alpha = 0.7) +
+  scale_x_continuous(
+    name = "No. de Hogares",
+    breaks = pretty_breaks(n = 6),
+    expand = expansion(mult = c(0, 0.1))) +
+  scale_y_discrete(
+    name = "Municipios",
+    expand = expansion(mult = c(0.01, 0.01))
+  ) +
+  labs(
+    title = "Dot Plot - Hogares con Jefatura Femenina por Municipio",
+    subtitle = "Estado de zacatecas") +
+  theme_bw()+
+    theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=9),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13),
+    panel.grid.major.y = element_line(color = "#ECF0F1", linewidth = 0.5,
+      linetype = "dashed"),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.background = element_rect(fill = "#FAFAFA", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+
+```
+
+## Relación de Dependencia {.tabset}
+
+La relación de dependencia es un indicador demográfico del INEGI que mide la carga que una población potencialmente inactiva (menores de 15 años y mayores de 64) representa para la población en edad productiva (de 15 a 64 años). Se calcula como el número de personas no productivas por cada cien personas productivas, siendo un indicador clave de la composición de la estructura por edad de una población.
+
+### Mapa Temático
+
+```{r}
+#| code-fold: true
+#| fig-width: 8
+#| fig-align: center
+
+
+ggplot(datos) +
+  geom_sf(aes(fill = relacion_de_dependencia), color = "white", size = 0.1) +
+  scale_fill_viridis_c(
+    name = "Relación de Dependencia"
+  ) +
+  labs(
+    title = "Relación de Dependencia de los Municipios de zacatecas",
+    caption = "Fuente: INEGI - Marco Geoestadístico"
+  ) +
+  theme_void() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    plot.caption = element_text(size = 10),
+    legend.position = "right"
+  )
+
+```
+
+### Histograma
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+ggplot(datos) +
+  geom_histogram(aes(relacion_de_dependencia), color="black", fill = "olivedrab", boundary=min(datos$relacion_de_dependencia), binwidth = 2) +
+  labs(
+    title = "Distribución de la Relación de Dendencia",
+    x = "Relación de Dependencia", y = "Frecuencia"
+  ) +
+  theme_bw()+
+  theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13)
+  )
+
+```
+
+### Gráfica de densidad
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+ggplot(datos) +
+  geom_density(aes(relacion_de_dependencia), color="black", fill = "firebrick", alpha=0.6) +
+  labs(
+    title = "Distribución de la Relación de Dependencia",
+    x = "Relación de Dependencia", y = "Densidad"
+  ) +
+  theme_bw()+
+  theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13)
+  )
+
+
+```
+
+### Boxplot
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+ggplot(data = datos, aes(x = "", y = relacion_de_dependencia)) +
+    geom_boxplot(
+    fill = "#4A70E2",           # Color de relleno
+    color = "#2C2F7A",          # Color del borde más oscuro
+    alpha = 0.8,                # Transparencia
+    outlier.color = "#E74C3C",  # Color rojo para outliers
+    outlier.size = 2.5,         # Tamaño de outliers
+    outlier.alpha = 0.7,        # Transparencia de outliers
+    width = 0.5,                # Ancho del boxplot
+    notch = TRUE,               # Muescas para intervalo de confianza
+    notchwidth = 0.7            # Ancho de las muescas
+  ) +
+  geom_jitter(alpha = 0.3, color = "#34495E", size = 1.5, width = 0.1) +
+  scale_y_continuous(breaks = pretty_breaks(n = 8), labels = function(x) paste(x, "%")) +
+  labs(title = "Distribución de la Relación de Dependencia", 
+  subtitle = "Población del Estado de zacatecas",
+  y = "Relación de Dependencia",
+  x = "")+
+  theme_bw()+
+  theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13),
+    panel.grid.major.y = element_line(color = "#ECF0F1", linewidth = 0.5,
+      linetype = "dashed"),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.background = element_rect(fill = "#FAFAFA", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+```
+
+### Gráfico de violín
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+ggplot(data = datos, aes(x = "", y = relacion_de_dependencia)) +
+    geom_violin(fill = "#4A90E2", color = "#2C5F7A", alpha = 0.8,
+    trim = FALSE,               # No recortar las colas
+    scale = "width", width = 0.8, linewidth = 0.8) +
+    geom_boxplot( width = 0.15, fill = "white", color = "#2C5F7A", alpha = 0.9,
+    outlier.color = "#E74C3C", outlier.size = 1.5, outlier.alpha = 0.8, notch = FALSE) +
+  stat_summary(fun = median, geom = "point", shape = 21, size = 3, fill = "white",
+  color = "#2C5F7A", stroke = 1.5) +
+  geom_jitter(alpha = 0.2, color = "#34495E", size = 0.8, width = 0.05) +
+  scale_y_continuous(breaks = pretty_breaks(n = 8), labels = function(x) paste(x, "%")) +
+  labs(title = "Distribución de la Relación de Dependencia", 
+  subtitle = "Población del Estado de zacatecas",
+  y = "Relación de Dependencia",
+  x = "")+
+  theme_bw()+
+  theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13),
+    panel.grid.major.y = element_line(color = "#ECF0F1", linewidth = 0.5,
+      linetype = "dashed"),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.background = element_rect(fill = "#FAFAFA", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+  
+```
+
+### Q-Q Plot (comparación de cuantiles)
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+
+# Q-Q Plot básico para normalidad
+ggplot(data = datos, aes(sample = relacion_de_dependencia)) +
+    stat_qq(color = "#4A90E2", size = 2, alpha = 0.7) +
+    stat_qq_line(color = "#E74C3C", linewidth = 1, linetype = "dashed") +
+    scale_x_continuous(name = "Cuantiles Teóricos (Distribución Normal)",
+    breaks = pretty_breaks(n = 6)) +
+    scale_y_continuous(name = "Cuantiles Muestrales (Relacion de dependencia)",
+    breaks = pretty_breaks(n = 6),
+    labels = function(x) paste(x, "%")) +
+    labs(title = "Gráfico Q-Q para Normalidad",
+    subtitle = "Relacion de dependencia - Población zacatecas") +
+    theme_bw()+
+    theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13),
+    panel.grid.major.y = element_line(color = "#ECF0F1", linewidth = 0.5,
+      linetype = "dashed"),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.background = element_rect(fill = "#FAFAFA", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+  
+
+
+```
+
+### Dot Plot (Gráfico de puntos)
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-height: 16
+#| fig-align: center
+
+ggplot(data = datos, aes(x = relacion_de_dependencia, y = reorder(NOMGEO, relacion_de_dependencia))) +
+  geom_point(color = "#4A90E2", size = 3, alpha = 0.8) +
+  geom_segment(aes(x = 0, xend = relacion_de_dependencia, y = NOMGEO, yend = NOMGEO),
+    color = "#BDC3C7", size = 0.5, alpha = 0.7) +
+  scale_x_continuous(
+    name = "Relación de Dependencia",
+    breaks = pretty_breaks(n = 6),
+    expand = expansion(mult = c(0, 0.1))) +
+  scale_y_discrete(
+    name = "Municipios",
+    expand = expansion(mult = c(0.01, 0.01))
+  ) +
+  labs(
+    title = "Dot Plot - Relación de Dependencia por Municipio",
+    subtitle = "Estado de zacatecas") +
+  theme_bw()+
+    theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=9),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13),
+    panel.grid.major.y = element_line(color = "#ECF0F1", linewidth = 0.5,
+      linetype = "dashed"),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.background = element_rect(fill = "#FAFAFA", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+
+```
+
+## Viviendas particulares habitadas con energia Eléctrica {.tabset}
+ 
+Son hogares, o partes de ellos, donde vive gente y que cuentan con un suministro de electricidad, sin importar su origen, ya sea de la red pública u otras fuentes como la solar. Esta definición se usa para clasificar las viviendas en censos y encuestas, diferenciándolas de las que carecen de este servicio básico. 
+
+### Mapa temático
+
+```{r}
+#| code-fold: true
+#| fig-width: 8
+#| fig-align: center
+
+
+ggplot(datos) +
+  geom_sf(aes(fill = viviendas_particulares_habitadas_que_disponen_de_energia_electrica), color = "white", size = 0.1) +
+  scale_fill_viridis_c(
+    name = "Viviendas particulares habitadas con energia Eléctrica"
+  ) +
+  labs(
+    title = "Viviendas particulares habitadas con energia Eléctrica de los Municipios de zacatecas",
+    caption = "Fuente: INEGI - Marco Geoestadístico"
+  ) +
+  theme_void() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    plot.caption = element_text(size = 10),
+    legend.position = "right"
+  )
+
+```
+
+### Histograma
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+ggplot(datos) +
+  geom_histogram(aes(viviendas_particulares_habitadas_que_disponen_de_energia_electrica), color="black", fill = "olivedrab", boundary=min(datos$viviendas_particulares_habitadas_que_disponen_de_energia_electrica), binwidth = 2000) +
+  labs(
+    title = "Distribución de las Viviendas particulares habitadas con ergia Eléctrica",
+    x = "No. de Viviendas", y = "Frecuencia"
+  ) +
+  theme_bw()+
+  theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13)
+  )
+
+```
+
+### Gráfica de densidad
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+ggplot(datos) +
+  geom_density(aes(viviendas_particulares_habitadas_que_disponen_de_energia_electrica), color="black", fill = "firebrick", alpha=0.6) +
+  labs(
+    title = "Distribución de las Viviendas particulares habitadas con energia Eléctrica",
+    x = "No. de Viviendas", y = "Densidad"
+  ) +
+  theme_bw()+
+  theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13)
+  )
+
+
+```
+
+### Boxplot
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+ggplot(data = datos, aes(x = "", y = viviendas_particulares_habitadas_que_disponen_de_energia_electrica)) +
+    geom_boxplot(
+    fill = "#4A90E2",           # Color de relleno
+    color = "#2C5F7A",          # Color del borde más oscuro
+    alpha = 0.8,                # Transparencia
+    outlier.color = "#E74C3C",  # Color rojo para outliers
+    outlier.size = 2.5,         # Tamaño de outliers
+    outlier.alpha = 0.7,        # Transparencia de outliers
+    width = 0.5,                # Ancho del boxplot
+    notch = TRUE,               # Muescas para intervalo de confianza
+    notchwidth = 0.7            # Ancho de las muescas
+  ) +
+  geom_jitter(alpha = 0.3, color = "#34495E", size = 1.5, width = 0.1) +
+  scale_y_continuous(breaks = pretty_breaks(n = 8), labels = function(x) paste(x, "")) +
+  labs(title = "Distribución de la Viviendas particulares habitadas con energia Eléctrica", 
+  subtitle = "Población del Estado de zacatecas",
+  y = "No. de Viviendas",
+  x = "")+
+  theme_bw()+
+  theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13),
+    panel.grid.major.y = element_line(color = "#ECF0F1", linewidth = 0.5,
+      linetype = "dashed"),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.background = element_rect(fill = "#FAFAFA", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+```
+
+### Gráfico de violín
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+ggplot(data = datos, aes(x = "", y = viviendas_particulares_habitadas_que_disponen_de_energia_electrica)) +
+    geom_violin(fill = "#4A90E2", color = "#2C5F7A", alpha = 0.8,
+    trim = FALSE,               # No recortar las colas
+    scale = "width", width = 0.8, linewidth = 0.8) +
+    geom_boxplot( width = 0.15, fill = "white", color = "#2C5F7A", alpha = 0.9,
+    outlier.color = "#E74C3C", outlier.size = 1.5, outlier.alpha = 0.8, notch = FALSE) +
+  stat_summary(fun = median, geom = "point", shape = 21, size = 3, fill = "white",
+  color = "#2C5F7A", stroke = 1.5) +
+  geom_jitter(alpha = 0.2, color = "#34495E", size = 0.8, width = 0.05) +
+  scale_y_continuous(breaks = pretty_breaks(n = 8), labels = function(x) paste(x, " ")) +
+  labs(title = "Distribución de la Viviendas particulares habitadas con energia Eléctrica", 
+  subtitle = "Población del Estado de zacatecas",
+  y = "No. de Viviendas",
+  x = "")+
+  theme_bw()+
+  theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13),
+    panel.grid.major.y = element_line(color = "#ECF0F1", linewidth = 0.5,
+      linetype = "dashed"),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.background = element_rect(fill = "#FAFAFA", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+  
+```
+
+### Q-Q Plot (comparación de cuantiles)
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-align: center
+
+
+# Q-Q Plot básico para normalidad
+ggplot(data = datos, aes(sample = viviendas_particulares_habitadas_que_disponen_de_energia_electrica)) +
+    stat_qq(color = "#4A90E2", size = 2, alpha = 0.7) +
+    stat_qq_line(color = "#E74C3C", linewidth = 1, linetype = "dashed") +
+    scale_x_continuous(name = "Cuantiles Teóricos (Distribución Normal)",
+    breaks = pretty_breaks(n = 6)) +
+    scale_y_continuous(name = "Cuantiles Muestrales (Viviendas particulares habitadas con energia Eléctrica)",
+    breaks = pretty_breaks(n = 6),
+    labels = function(x) paste(x, " ")) +
+    labs(title = "Gráfico Q-Q para Normalidad",
+    subtitle = "Viviendas particulares habitadas con energia Eléctrica - Población zacatecas") +
+    theme_bw()+
+    theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=12),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13),
+    panel.grid.major.y = element_line(color = "#ECF0F1", linewidth = 0.5,
+      linetype = "dashed"),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.background = element_rect(fill = "#FAFAFA", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+  
+
+
+```
+
+### Dot Plot (Gráfico de puntos)
+
+```{r}
+#| code-fold: true
+#| fig-width: 7
+#| fig-height: 16
+#| fig-align: center
+
+ggplot(data = datos, aes(x = viviendas_particulares_habitadas_que_disponen_de_energia_electrica, y = reorder(NOMGEO, viviendas_particulares_habitadas_que_disponen_de_energia_electrica))) +
+  geom_point(color = "#4A90E2", size = 3, alpha = 0.8) +
+  geom_segment(aes(x = 0, xend = viviendas_particulares_habitadas_que_disponen_de_energia_electrica, y = NOMGEO, yend = NOMGEO),
+    color = "#BDC3C7", size = 0.5, alpha = 0.7) +
+  scale_x_continuous(
+    name = "No. de Viviendas",
+    breaks = pretty_breaks(n = 6),
+    expand = expansion(mult = c(0, 0.1))) +
+  scale_y_discrete(
+    name = "Municipios",
+    expand = expansion(mult = c(0.01, 0.01))
+  ) +
+  labs(
+    title = "Dot Plot - Viviendas particulares habitadas con energia Eléctrica por Municipio",
+    subtitle = "Estado de zacatecas") +
+  theme_bw()+
+    theme(
+    legend.title = element_text(size=13, face="bold"),
+    legend.text = element_text(size=13),
+    plot.title = element_text(size=15, face="bold"),
+    plot.subtitle = element_text(size=13),
+    axis.text.x=element_text(size=12),
+    axis.text.y=element_text(size=9),
+    axis.title.x = element_text(face="bold", size=13),
+    axis.title.y = element_text(face="bold", size=13),
+    panel.grid.major.y = element_line(color = "#ECF0F1", linewidth = 0.5,
+      linetype = "dashed"),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.background = element_rect(fill = "#FAFAFA", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+
+```
