@@ -1,5 +1,5 @@
 ---
-title: "mapas_y_descripcione_graficas_zacatecas"
+title: "mapas_y_descripciones_graficas_zacatecas"
 author: "Pedro Gutierrez"
 format:
   html:
@@ -637,6 +637,7 @@ ggplot(datos) +
   )
 
 ```
+
 
 
 
